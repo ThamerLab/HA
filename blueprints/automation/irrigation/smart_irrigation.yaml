@@ -1,89 +1,164 @@
 blueprint:
   name: ThamerLab Smart Irrigation
-  description: Smart irrigation blueprint with notifications and flow monitoring.
+  description: >
+    Beginner friendly smart irrigation blueprint for Home Assistant.
+    Supports sunrise and sunset, one custom time, and repeat every X hours.
+    It also supports optional flow sensors, water usage estimation, notifications,
+    no-flow protection, and manual stop detection.
   domain: automation
-  source_url: https://github.com/ThamerLab/HA
+  source_url: https://github.com/ThamerLab/HA/blob/main/blueprints/automation/irrigation/smart_irrigation.yaml
 
   input:
     irrigation_switches:
-      name: Irrigation Valves
-      description: Select irrigation switches.
+      name: Irrigation valves
+      description: Select one or more switch entities that control the irrigation valves.
       selector:
         entity:
           domain: switch
           multiple: true
 
-    flow_sensors:
-      name: Flow Sensors
-      description: Optional flow sensors.
-      default: []
-      selector:
-        entity:
-          domain: sensor
-          multiple: true
-
-    notify_service:
-      name: Notify Service
-      default: notify.notify
-      selector:
-        text:
-
     irrigation_duration:
-      name: Irrigation Duration
+      name: Irrigation duration
+      description: How long the irrigation cycle should run.
       default: 15
       selector:
         number:
           min: 1
           max: 120
           step: 1
+          unit_of_measurement: minutes
           mode: slider
 
-    run_at_sunrise:
-      name: Run at Sunrise
+    schedule_mode:
+      name: Schedule mode
+      description: Choose how the irrigation should start.
+      default: sun
+      selector:
+        select:
+          options:
+            - label: Sunrise and sunset
+              value: sun
+            - label: Custom time once per day
+              value: custom
+            - label: Repeat every X hours
+              value: repeat
+
+    custom_time:
+      name: Custom time
+      description: Used only when schedule mode is Custom time once per day.
+      default: "06:00:00"
+      selector:
+        time:
+
+    repeat_every_hours:
+      name: Repeat every X hours
+      description: Used only when schedule mode is Repeat every X hours.
+      default: 6
+      selector:
+        number:
+          min: 1
+          max: 24
+          step: 1
+          unit_of_measurement: hours
+          mode: slider
+
+    flow_sensors:
+      name: Flow sensors optional
+      description: Optional flow sensors. Expected unit is cubic meter per hour.
+      default: []
+      selector:
+        entity:
+          domain: sensor
+          multiple: true
+
+    enable_no_flow_protection:
+      name: Stop if no flow detected
+      description: If enabled and flow sensors are selected, irrigation stops when total flow is zero after one minute.
       default: true
       selector:
         boolean:
 
-    run_at_sunset:
-      name: Run at Sunset
+    notify_service:
+      name: Notification service
+      description: Example notify.mobile_app_iphone. Use notify.notify if unsure.
+      default: notify.notify
+      selector:
+        text:
+
+    enable_notifications:
+      name: Enable notifications
+      description: Send start, error, manual stop, and completion notifications.
       default: true
       selector:
         boolean:
 
 mode: restart
+max_exceeded: silent
 
 variables:
   switches: !input irrigation_switches
-  flows: !input flow_sensors
   duration: !input irrigation_duration
+  mode_selected: !input schedule_mode
+  repeat_hours: !input repeat_every_hours
+  flows: !input flow_sensors
+  no_flow_protection: !input enable_no_flow_protection
+  notifications_enabled: !input enable_notifications
 
 triggers:
   - trigger: sun
     event: sunrise
     id: sunrise
-
   - trigger: sun
     event: sunset
     id: sunset
+  - trigger: time
+    at: !input custom_time
+    id: custom_time
+  - trigger: time_pattern
+    minutes: "0"
+    id: repeat_check
 
 conditions:
   - condition: template
     value_template: >
-      {% if trigger.id == 'sunrise' %}
-        {{ !input run_at_sunrise }}
+      {% if mode_selected == 'sun' %}
+        {{ trigger.id in ['sunrise', 'sunset'] }}
+      {% elif mode_selected == 'custom' %}
+        {{ trigger.id == 'custom_time' }}
+      {% elif mode_selected == 'repeat' %}
+        {{ trigger.id == 'repeat_check' and (now().hour | int) % (repeat_hours | int) == 0 }}
       {% else %}
-        {{ !input run_at_sunset }}
+        false
       {% endif %}
 
 actions:
+  - variables:
+      run_label: >
+        {% if trigger.id == 'sunrise' %}
+          sunrise
+        {% elif trigger.id == 'sunset' %}
+          sunset
+        {% elif trigger.id == 'custom_time' %}
+          custom time
+        {% else %}
+          repeat schedule
+        {% endif %}
+
   - service: switch.turn_on
     target:
       entity_id: !input irrigation_switches
 
-  - service: !input notify_service
-    data:
-      title: Irrigation Started
-      message: Irrigation cycle started.
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ notifications_enabled }}"
+        sequence:
+          - service: !input notify_service
+            data:
+              title: Irrigation started
+              message: >
+                Irrigation started by {{ run_label }}.
+                Duration: {{ duration }} minutes.
 
   - delay:
       minutes: 1
@@ -94,17 +169,73 @@ actions:
         {% for f in flows %}
           {% set ns.total = ns.total + (states(f) | float(0)) %}
         {% endfor %}
-        {{ ns.total | round(2) }}
+        {{ ns.total | round(3) }}
 
-  - delay:
-      minutes: 14
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ no_flow_protection and (flows | count > 0) and (total_flow | float(0) <= 0) }}"
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input irrigation_switches
+          - service: persistent_notification.create
+            data:
+              title: Irrigation error
+              message: No water flow detected. Irrigation stopped automatically.
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notifications_enabled }}"
+                sequence:
+                  - service: !input notify_service
+                    data:
+                      title: Irrigation error
+                      message: No water flow detected. Irrigation stopped automatically.
+          - stop: No flow detected
+
+  - wait_template: >
+      {% set off_count = expand(switches) | selectattr('state', 'eq', 'off') | list | count %}
+      {{ off_count == (switches | count) }}
+    timeout:
+      minutes: "{{ [duration - 1, 0] | max }}"
+    continue_on_timeout: true
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >
+              {% set off_count = expand(switches) | selectattr('state', 'eq', 'off') | list | count %}
+              {{ off_count == (switches | count) }}
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notifications_enabled }}"
+                sequence:
+                  - service: !input notify_service
+                    data:
+                      title: Irrigation stopped manually
+                      message: Irrigation was stopped before the scheduled duration ended.
+          - stop: Manual stop detected
 
   - service: switch.turn_off
     target:
       entity_id: !input irrigation_switches
 
-  - service: !input notify_service
-    data:
-      title: Irrigation Completed
-      message: >
-        Estimated usage: {{ ((total_flow * (duration / 60)) * 1000) | round(0) }} liters
+  - variables:
+      used_m3: "{{ ((total_flow | float(0)) * ((duration | float(0)) / 60)) | round(3) }}"
+      used_liters: "{{ (((total_flow | float(0)) * ((duration | float(0)) / 60)) * 1000) | round(0) }}"
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ notifications_enabled }}"
+        sequence:
+          - service: !input notify_service
+            data:
+              title: Irrigation completed
+              message: >
+                Irrigation completed successfully.
+                Estimated usage: {{ used_liters }} liters ({{ used_m3 }} m3).
+                Flow sample after one minute: {{ total_flow }} m3/h.
