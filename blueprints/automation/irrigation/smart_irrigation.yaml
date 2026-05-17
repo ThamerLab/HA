@@ -3,20 +3,23 @@ blueprint:
   description: >
     Smart irrigation blueprint with sunrise/sunset support,
     flow validation, estimated water usage,
-    and manual stop detection.
+    manual stop detection, and notification support.
 
   domain: automation
+  source_url: https://github.com/ThamerLab/HA
 
   input:
     irrigation_switches:
       name: Irrigation Switches
+      description: Select one or more irrigation valves or switches.
       selector:
         entity:
           multiple: true
           domain: switch
 
     flow_sensors:
-      name: Flow Sensors (m³/h)
+      name: Flow Sensors (m3/h)
+      description: Flow sensors used for water usage estimation.
       selector:
         entity:
           multiple: true
@@ -24,6 +27,7 @@ blueprint:
 
     status_sensors:
       name: Device Status Sensors
+      description: Sensors used to verify device health and status.
       selector:
         entity:
           multiple: true
@@ -31,12 +35,14 @@ blueprint:
 
     notify_service:
       name: Notify Service
+      description: Notification service used for alerts.
       default: notify.notify
       selector:
         text:
 
     irrigation_duration:
       name: Irrigation Duration
+      description: Irrigation runtime in minutes.
       default: 15
       selector:
         number:
@@ -44,15 +50,18 @@ blueprint:
           max: 120
           step: 1
           unit_of_measurement: minutes
+          mode: slider
 
     run_at_sunrise:
       name: Run at Sunrise
+      description: Enable automatic irrigation at sunrise.
       default: true
       selector:
         boolean:
 
     run_at_sunset:
       name: Run at Sunset
+      description: Enable automatic irrigation at sunset.
       default: true
       selector:
         boolean:
@@ -99,7 +108,7 @@ actions:
 
   - service: !input notify_service
     data:
-      title: "💧 Irrigation Started"
+      title: "Irrigation Started"
       message: >
         {% if trigger.id == 'sunrise' %}
           Irrigation started at sunrise.
@@ -128,12 +137,12 @@ actions:
         sequence:
           - service: persistent_notification.create
             data:
-              title: "⚠️ Irrigation Error"
+              title: "Irrigation Error"
               message: "No water flow detected"
 
           - service: !input notify_service
             data:
-              title: "⚠️ Irrigation Error"
+              title: "Irrigation Error"
               message: "No water flow detected"
 
   - wait_template: >
@@ -158,7 +167,7 @@ actions:
         sequence:
           - service: !input notify_service
             data:
-              title: "🛑 Irrigation Stopped Manually"
+              title: "Irrigation Stopped Manually"
               message: "Irrigation was stopped before scheduled completion"
 
           - stop: "Manual stop"
@@ -179,13 +188,13 @@ actions:
 
   - service: !input notify_service
     data:
-      title: "✅ Irrigation Completed"
+      title: "Irrigation Completed"
       message: >
         Irrigation completed successfully.
 
-        💦 Estimated water usage:
+        Estimated water usage:
         {{ used_liters }} liters
         ({{ used_m3 }} m³)
 
-        📊 Current flow:
+        Current flow:
         {{ total_flow | round(2) }} m³/h
