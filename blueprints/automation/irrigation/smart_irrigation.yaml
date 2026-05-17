@@ -1,0 +1,191 @@
+blueprint:
+  name: Smart Irrigation System
+  description: >
+    Smart irrigation blueprint with sunrise/sunset support,
+    flow validation, estimated water usage,
+    and manual stop detection.
+
+  domain: automation
+
+  input:
+    irrigation_switches:
+      name: Irrigation Switches
+      selector:
+        entity:
+          multiple: true
+          domain: switch
+
+    flow_sensors:
+      name: Flow Sensors (m³/h)
+      selector:
+        entity:
+          multiple: true
+          domain: sensor
+
+    status_sensors:
+      name: Device Status Sensors
+      selector:
+        entity:
+          multiple: true
+          domain: sensor
+
+    notify_service:
+      name: Notify Service
+      default: notify.notify
+      selector:
+        text:
+
+    irrigation_duration:
+      name: Irrigation Duration
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 120
+          step: 1
+          unit_of_measurement: minutes
+
+    run_at_sunrise:
+      name: Run at Sunrise
+      default: true
+      selector:
+        boolean:
+
+    run_at_sunset:
+      name: Run at Sunset
+      default: true
+      selector:
+        boolean:
+
+mode: restart
+
+variables:
+  switches: !input irrigation_switches
+  flows: !input flow_sensors
+  statuses: !input status_sensors
+  duration: !input irrigation_duration
+
+triggers:
+  - trigger: sun
+    event: sunrise
+    id: sunrise
+
+  - trigger: sun
+    event: sunset
+    id: sunset
+
+conditions:
+  - condition: template
+    value_template: >
+      {% if trigger.id == 'sunrise' %}
+        {{ !input run_at_sunrise }}
+      {% else %}
+        {{ !input run_at_sunset }}
+      {% endif %}
+
+actions:
+  - condition: template
+    value_template: >
+      {% for s in statuses %}
+        {% if states(s) != 'normal_state' %}
+          {{ false }}
+        {% endif %}
+      {% endfor %}
+      {{ true }}
+
+  - service: switch.turn_on
+    target:
+      entity_id: !input irrigation_switches
+
+  - service: !input notify_service
+    data:
+      title: "💧 Irrigation Started"
+      message: >
+        {% if trigger.id == 'sunrise' %}
+          Irrigation started at sunrise.
+        {% else %}
+          Irrigation started at sunset.
+        {% endif %}
+
+        Duration: {{ duration }} minutes
+
+  - delay:
+      minutes: 1
+
+  - variables:
+      total_flow: >
+        {% set ns = namespace(total=0) %}
+        {% for f in flows %}
+          {% set ns.total = ns.total + (states(f) | float(0)) %}
+        {% endfor %}
+        {{ ns.total }}
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ total_flow <= 0 }}
+        sequence:
+          - service: persistent_notification.create
+            data:
+              title: "⚠️ Irrigation Error"
+              message: "No water flow detected"
+
+          - service: !input notify_service
+            data:
+              title: "⚠️ Irrigation Error"
+              message: "No water flow detected"
+
+  - wait_template: >
+      {% set off = expand(switches)
+         | selectattr('state', 'eq', 'off')
+         | list
+         | count %}
+      {{ off == (switches | count) }}
+    timeout:
+      minutes: 14
+    continue_on_timeout: true
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >
+              {% set off = expand(switches)
+                 | selectattr('state', 'eq', 'off')
+                 | list
+                 | count %}
+              {{ off == (switches | count) }}
+        sequence:
+          - service: !input notify_service
+            data:
+              title: "🛑 Irrigation Stopped Manually"
+              message: "Irrigation was stopped before scheduled completion"
+
+          - stop: "Manual stop"
+
+  - delay:
+      minutes: 14
+
+  - service: switch.turn_off
+    target:
+      entity_id: !input irrigation_switches
+
+  - variables:
+      used_m3: >
+        {{ (total_flow * (duration / 60)) | round(3) }}
+
+      used_liters: >
+        {{ ((total_flow * (duration / 60)) * 1000) | round(0) }}
+
+  - service: !input notify_service
+    data:
+      title: "✅ Irrigation Completed"
+      message: >
+        Irrigation completed successfully.
+
+        💦 Estimated water usage:
+        {{ used_liters }} liters
+        ({{ used_m3 }} m³)
+
+        📊 Current flow:
+        {{ total_flow | round(2) }} m³/h
