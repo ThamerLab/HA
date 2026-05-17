@@ -1,6 +1,10 @@
 # ThamerLab Home Assistant
 
-مجموعة مرتبة لملفات Home Assistant الخاصة بي.
+![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Compatible-41BDF5?logo=homeassistant&logoColor=white)
+![Blueprint](https://img.shields.io/badge/Blueprint-Irrigation-green)
+![Maintained](https://img.shields.io/badge/Maintained-Yes-success)
+
+مجموعة مرتبة وقابلة للمشاركة لملفات Home Assistant.
 
 هذا الريبو مخصص لحفظ ومشاركة:
 
@@ -13,7 +17,9 @@
 - Scripts
 - Notification flows
 
-## Structure
+---
+
+# Structure
 
 ```text
 blueprints/
@@ -23,47 +29,66 @@ blueprints/
       README.md
 
 dashboards/
-  README.md
-
 packages/
-  README.md
-
 scripts/
-  README.md
-
 automations/
-  README.md
 ```
 
-## Blueprints
+---
 
-### Smart Irrigation
+# Included Blueprint
 
-Blueprint لتشغيل سقاية الحديقة عند الشروق والغروب، مع:
+## Smart Irrigation System
 
-- مدة تشغيل قابلة للتعديل
-- اختيار أكثر من رشاش
-- اختيار حساسات التدفق
-- اختيار حساسات حالة الجهاز
-- إشعار بداية التشغيل
-- إشعار نهاية التشغيل
-- إشعار عند الإيقاف اليدوي
-- تقدير استهلاك المياه باللتر والمتر المكعب
+Blueprint ذكي لسقاية الحديقة يدعم:
 
-Import URL:
+- الشروق والغروب
+- تشغيل أكثر من منطقة
+- التحقق من التدفق
+- حساب استهلاك المياه
+- كشف الإيقاف اليدوي
+- الإشعارات
+- حساب اللترات والمتر المكعب
+
+---
+
+# Import Blueprint
+
+استخدم الرابط التالي مباشرة داخل Home Assistant:
 
 ```text
 https://raw.githubusercontent.com/ThamerLab/HA/main/blueprints/automation/irrigation/smart_irrigation.yaml
 ```
 
-## Import in Home Assistant
+Home Assistant:
 
-Home Assistant → Settings → Automations & Scenes → Blueprints → Import Blueprint
+Settings → Automations & Scenes → Blueprints → Import Blueprint
 
-ثم الصق رابط الـ raw أعلاه.
+---
 
-## Notes
+# Recommended Hardware
 
-- يفضل أن تكون حساسات التدفق بوحدة `m³/h`.
-- إذا كان حساس التدفق عندك بوحدة مختلفة، عدل خيار Flow unit عند إنشاء الأتمتة.
-- هذا الريبو قابل للتوسع لاحقًا لإضافة صفحات Dashboard و Packages جاهزة.
+- Zigbee irrigation valves
+- Flow sensors
+- ESPHome devices
+- Aqara relays
+- Zigbee2MQTT
+- Home Assistant Companion App
+
+---
+
+# Future Plans
+
+- Mushroom dashboards
+- Irrigation dashboard package
+- Energy monitoring
+- Climate control packages
+- Notification center
+- Mobile-first dashboards
+- OLED themes
+
+---
+
+# Author
+
+Created and maintained by ThamerLab.
